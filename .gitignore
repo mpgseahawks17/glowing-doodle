@@ -1,0 +1,31 @@
+node_modules/
+.next/
+next-env.d.ts
+*.log
+
+# Secrets. .env holds ODDS_API_KEY and SUBSTACK_SID.
+.env
+.env.local
+auth/
+
+# Local database. The -shm/-wal sidecars matter: `data/*.db` does NOT match
+# them, and the WAL file routinely reaches several MB.
+data/*.db
+data/*.db-shm
+data/*.db-wal
+data/*.db-journal
+data/cache/
+
+# Diagnostic scrape output -- cached copies of third-party pages and API
+# responses, written by scripts/spikes/. Local debugging artifacts, not source,
+# and not ours to redistribute.
+data/spike-odds/
+data/spike-silver/
+
+# Hand-transcribed ELWAY projections. The format template is source; the
+# transcribed numbers are Silver Bulletin's paid content.
+data/silver/*
+!data/silver/TEMPLATE.txt
+
+# TypeScript incremental build cache
+tsconfig.tsbuildinfo

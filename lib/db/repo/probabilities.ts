@@ -1,0 +1,241 @@
+import { and, asc, desc, eq, gte, inArray, lte } from "drizzle-orm";
+import { db, schema } from "../client";
+import type { ProbMatrix } from "@/lib/model/types";
+import type { WeekMatchup } from "@/lib/model/engine";
+
+/**
+ * A snapshot is considered stale once it is this much older than the freshest
+ * one available for the same game. Matches the UI's staleness threshold.
+ */
+const STALENESS_HOURS = 36;
+
+type OddsRow = {
+  gameId: string;
+  fetchedAt: string;
+  source: string;
+  bookCount: number;
+};
+
+/**
+ * Choose one odds snapshot per game.
+ *
+ * Sources are not equal quality. The Odds API returns a median across roughly
+ * ten US books; ESPN and nflverse are single-book. So we rank by `bookCount`
+ * rather than by recency alone, which means the current week automatically
+ * prefers the Odds API median over ESPN's DraftKings line, while the lookahead
+ * weeks -- where only ESPN has data -- still work.
+ *
+ * Ranking by book count rather than a hardcoded source list keeps this correct
+ * if another feed is added later.
+ *
+ * The staleness guard matters: if the Odds API quota runs out mid-season, its
+ * last median would otherwise be preferred forever over fresh ESPN lines. Once
+ * the richer snapshot is more than STALENESS_HOURS behind the freshest one for
+ * that game, freshness wins instead.
+ */
+export function pickBestOdds<T extends OddsRow>(rows: T[]): Map<string, T> {
+  const byGame = new Map<string, T[]>();
+  for (const row of rows) {
+    const list = byGame.get(row.gameId);
+    if (list) list.push(row);
+    else byGame.set(row.gameId, [row]);
+  }
+
+  const best = new Map<string, T>();
+  for (const [gameId, candidates] of byGame) {
+    const freshest = candidates.reduce((a, b) =>
+      Date.parse(b.fetchedAt) > Date.parse(a.fetchedAt) ? b : a,
+    );
+    const freshestAt = Date.parse(freshest.fetchedAt);
+
+    const chosen = candidates.reduce((a, b) => {
+      const staleness = (row: T) =>
+        (freshestAt - Date.parse(row.fetchedAt)) / 3_600_000;
+      const aStale = staleness(a) > STALENESS_HOURS;
+      const bStale = staleness(b) > STALENESS_HOURS;
+
+      // A stale snapshot loses to a current one regardless of book count.
+      if (aStale !== bStale) return aStale ? b : a;
+      if (b.bookCount !== a.bookCount) {
+        return b.bookCount > a.bookCount ? b : a;
+      }
+      return Date.parse(b.fetchedAt) > Date.parse(a.fetchedAt) ? b : a;
+    });
+
+    best.set(gameId, chosen);
+  }
+  return best;
+}
+
+/**
+ * Assemble the week -> team -> {vegas, silver} matrix the model consumes.
+ *
+ * The probability tables are append-only, so "current" means the newest row per
+ * game. We read snapshots in ascending `fetchedAt` order and let later rows
+ * overwrite earlier ones in a Map -- cheap, and it keeps the history intact for
+ * the line-movement view rather than destroying it on write.
+ *
+ * A game contributes two entries: the home team at homeProb, the away team at
+ * awayProb. Teams on bye simply never appear for that week, which is exactly
+ * what the model's null handling expects.
+ */
+export async function buildProbMatrix(
+  season: number,
+  fromWeek: number,
+  toWeek: number,
+): Promise<{ matrix: ProbMatrix; gameIds: string[] }> {
+  const games = await db
+    .select()
+    .from(schema.games)
+    .where(
+      and(
+        eq(schema.games.season, season),
+        gte(schema.games.week, fromWeek),
+        lte(schema.games.week, toWeek),
+      ),
+    );
+
+  const matrix: ProbMatrix = new Map();
+  for (let w = fromWeek; w <= toWeek; w++) matrix.set(w, new Map());
+
+  if (games.length === 0) return { matrix, gameIds: [] };
+
+  const gameIds = games.map((g) => g.gameId);
+
+  const odds = await db
+    .select()
+    .from(schema.oddsSnapshots)
+    .where(inArray(schema.oddsSnapshots.gameId, gameIds))
+    .orderBy(asc(schema.oddsSnapshots.fetchedAt));
+
+  const silver = await db
+    .select()
+    .from(schema.silverProjections)
+    .where(inArray(schema.silverProjections.gameId, gameIds))
+    .orderBy(asc(schema.silverProjections.fetchedAt));
+
+  const bestOdds = pickBestOdds(odds);
+
+  const latestSilver = new Map<string, (typeof silver)[number]>();
+  for (const row of silver) latestSilver.set(row.gameId, row);
+
+  for (const game of games) {
+    const week = matrix.get(game.week);
+    if (!week) continue;
+
+    const o = bestOdds.get(game.gameId);
+    const s = latestSilver.get(game.gameId);
+
+    const home = week.get(game.homeTeam) ?? {};
+    const away = week.get(game.awayTeam) ?? {};
+
+    if (o?.homeProbDevig != null) {
+      home.vegas = o.homeProbDevig;
+      home.vegasSource = o.source;
+      home.vegasBooks = o.bookCount;
+    }
+    if (o?.awayProbDevig != null) {
+      away.vegas = o.awayProbDevig;
+      away.vegasSource = o.source;
+      away.vegasBooks = o.bookCount;
+    }
+
+    // Each side is set independently and may be absent. ELWAY is a
+    // win/loss/tie model, so one side's probability says nothing definite
+    // about the other's -- never infer the missing one.
+    if (s?.homeProb != null) {
+      home.silver = s.homeProb;
+      home.silverIsDerived = s.ingestMethod === "derived";
+    }
+    if (s?.awayProb != null) {
+      away.silver = s.awayProb;
+      away.silverIsDerived = s.ingestMethod === "derived";
+    }
+
+    week.set(game.homeTeam, home);
+    week.set(game.awayTeam, away);
+  }
+
+  return { matrix, gameIds };
+}
+
+/** team -> opponent + home/away for a single week. Byes are simply absent. */
+export async function matchupsForWeek(
+  season: number,
+  week: number,
+): Promise<Map<string, WeekMatchup>> {
+  const games = await db
+    .select()
+    .from(schema.games)
+    .where(and(eq(schema.games.season, season), eq(schema.games.week, week)));
+
+  const out = new Map<string, WeekMatchup>();
+  for (const g of games) {
+    out.set(g.homeTeam, { opponent: g.awayTeam, isHome: true });
+    out.set(g.awayTeam, { opponent: g.homeTeam, isHome: false });
+  }
+  return out;
+}
+
+/**
+ * Every week's matchups at once, for the 32x18 grid.
+ * week -> team -> opponent/home-away. A team missing from a week is on bye.
+ */
+export async function allMatchups(
+  season: number,
+): Promise<Record<string, Record<string, WeekMatchup>>> {
+  const games = await db
+    .select()
+    .from(schema.games)
+    .where(eq(schema.games.season, season));
+
+  const out: Record<string, Record<string, WeekMatchup>> = {};
+  for (const g of games) {
+    const week = String(g.week);
+    out[week] ??= {};
+    out[week][g.homeTeam] = { opponent: g.awayTeam, isHome: true };
+    out[week][g.awayTeam] = { opponent: g.homeTeam, isHome: false };
+  }
+  return out;
+}
+
+/**
+ * Freshness for the staleness banner.
+ *
+ * For Silver this reports the SOURCE's own vintage (`sourceAsOf`), not when we
+ * fetched it. Those differ by days and conflating them is actively misleading:
+ * pressing Refresh re-pulls the same sheet, so fetch time resets to "now" while
+ * the forecast underneath may be a week old. Market odds have no separate
+ * vintage -- fetching them IS the vintage -- so `odds` stays a fetch time.
+ */
+export async function dataFreshness(): Promise<{
+  odds: string | null;
+  /** When Silver last recomputed. Falls back to fetch time for manual rows. */
+  silver: string | null;
+  /** When we last pulled it, for the tooltip. */
+  silverFetchedAt: string | null;
+  silverMethod: string | null;
+}> {
+  const [newestOdds] = await db
+    .select({ fetchedAt: schema.oddsSnapshots.fetchedAt })
+    .from(schema.oddsSnapshots)
+    .orderBy(desc(schema.oddsSnapshots.fetchedAt))
+    .limit(1);
+
+  const [newestSilver] = await db
+    .select({
+      fetchedAt: schema.silverProjections.fetchedAt,
+      sourceAsOf: schema.silverProjections.sourceAsOf,
+      method: schema.silverProjections.ingestMethod,
+    })
+    .from(schema.silverProjections)
+    .orderBy(desc(schema.silverProjections.fetchedAt))
+    .limit(1);
+
+  return {
+    odds: newestOdds?.fetchedAt ?? null,
+    silver: newestSilver?.sourceAsOf ?? newestSilver?.fetchedAt ?? null,
+    silverFetchedAt: newestSilver?.fetchedAt ?? null,
+    silverMethod: newestSilver?.method ?? null,
+  };
+}

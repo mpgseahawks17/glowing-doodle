@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1789332452380,
+      "tag": "0000_tearful_shadow_king",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1789333868986,
+      "tag": "0001_luxuriant_sumo",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1789408633396,
+      "tag": "0002_violet_serpent_society",
+      "breakpoints": true
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+# ELWAY projections -- manual transcription
+#
+# One line per TEAM: the team, then ITS win probability.
+# A game normally contributes TWO lines, one for each side.
+#
+# Why both sides: ELWAY is a win/loss/TIE model, so for any game
+#     home% + away% + tie% = 100
+# The opponent therefore CANNOT be derived as 100 - p. Deriving it would
+# inflate every opponent by the tie probability. Transcribe both.
+#
+# If you only enter one side, that is allowed -- the other team simply gets no
+# Silver number for that week, and the ingest tells you which ones are
+# one-sided. It will never invent the missing side.
+#
+# Probabilities may be written as 58, 58.2, 58% or 0.582 -- all the same.
+# Team may be an abbreviation (KC) or a full name (Kansas City Chiefs).
+# Lines starting with # are ignored, as are - and * bullets.
+#
+# Team codes follow nflverse: LA = Rams (not LAR), WAS = Washington (not WSH).
+#
+# Load with:
+#   npm run ingest:silver -- --from-file data/silver/week2.txt --dry-run
+#   npm run ingest:silver -- --from-file data/silver/week2.txt
+#
+# The model needs the CURRENT week plus the next 4 to compute PickLater.
+# A partially filled week still works -- the ingest reports exactly which
+# games are missing or one-sided rather than failing silently.
+
+week 2
+# IND@KC, both sides:
+# KC 71.8
+# IND 27.9
+#   -> implies a 0.3% tie, which the ingest checks is plausible
+
+week 3

@@ -1,0 +1,49 @@
+{
+  "name": "nfl-survivor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "db:studio": "drizzle-kit studio",
+    "seed:teams": "tsx --env-file-if-exists=.env scripts/seed-teams.ts",
+    "ingest:schedule": "tsx --env-file-if-exists=.env scripts/ingest-schedule.ts",
+    "ingest:odds": "tsx --env-file-if-exists=.env scripts/ingest-odds.ts",
+    "ingest:odds:csv": "tsx --env-file-if-exists=.env scripts/ingest-odds-csv.ts",
+    "ingest:silver": "tsx --env-file-if-exists=.env scripts/ingest-silver.ts",
+    "scorecard": "tsx --env-file-if-exists=.env scripts/scorecard.ts",
+    "setup": "npm run db:migrate && npm run seed:teams && npm run ingest:schedule",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "spike:odds": "tsx --env-file-if-exists=.env scripts/spikes/odds-spike.ts",
+    "spike:silver": "tsx --env-file-if-exists=.env scripts/spikes/silver-spike.ts",
+    "spike:yahoo": "tsx --env-file-if-exists=.env scripts/spikes/yahoo-spike.ts",
+    "ingest:odds:espn": "tsx --env-file-if-exists=.env scripts/ingest-odds-espn.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx --env-file-if-exists=.env scripts/migrate.ts",
+    "backtest": "tsx --env-file-if-exists=.env scripts/backtest.ts",
+    "ingest:silver:sheet": "tsx --env-file-if-exists=.env scripts/ingest-silver-sheet.ts"
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "drizzle-orm": "^0.45.2",
+    "next": "^16.3.5",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "drizzle-kit": "^0.31.10",
+    "tailwindcss": "^4.3.3",
+    "tsx": "^4.23.13",
+    "typescript": "^5.9.0",
+    "vitest": "^3.0.0"
+  }
+}
