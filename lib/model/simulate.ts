@@ -55,6 +55,23 @@ export interface KnockOn {
   after: number;
 }
 
+/**
+ * A week whose PICK changed identity, which is a different question from
+ * whether it got worse.
+ *
+ * Spending a team early forces the solver to reshuffle later weeks, and the
+ * reshuffle is the part worth seeing: "week 4 is now MIN instead of BAL" says
+ * what actually happened, where a probability delta only says how much it
+ * cost. A week can also swap teams and barely move, or even improve.
+ */
+export interface TeamChange {
+  week: number;
+  before: string | null;
+  after: string | null;
+  /** True for the week the user pinned, false for knock-on reshuffles. */
+  pinned: boolean;
+}
+
 export interface SimulatedPlan extends PlanOutcome {
   /** Weeks whose pick was pinned rather than solved for. */
   forcedWeeks: Set<number>;
@@ -65,6 +82,14 @@ export interface SimulatedPlan extends PlanOutcome {
   livesCost: number;
   /** Weeks that got worse than baseline, biggest damage first. */
   knockOn: KnockOn[];
+  /**
+   * Weeks whose pick changed identity, in week order.
+   *
+   * Deliberately separate from `knockOn`: that list answers "how much did this
+   * cost", this one answers "what moved". A week can swap teams without
+   * getting worse, so neither list is a subset of the other.
+   */
+  changes: TeamChange[];
   /**
    * Anything that makes the numbers above untrustworthy. Non-empty means the
    * UI should show the problem rather than a confident delta.
@@ -223,6 +248,7 @@ export function buildSimulatedPlan(
       cost: 0,
       livesCost: 0,
       knockOn: [],
+      changes: [],
       problems,
     };
   }
@@ -279,19 +305,49 @@ export function buildSimulatedPlan(
 
   const simulated = outcome(merged, lives);
 
-  // Per-week comparison: what does week 12 look like now versus before? The
-  // teams differ between the two plans, which is the point -- the question is
-  // whether that week got worse, not whether it kept the same team.
-  const before = new Map(baseline.rows.map((r) => [r.week, r.prob]));
+  /**
+   * Two per-week comparisons against the baseline, answering different
+   * questions:
+   *
+   *   knockOn - which weeks got WORSE, and by how much. Sorted worst-first,
+   *             because the headline is the biggest casualty.
+   *   changes - which weeks now hold a DIFFERENT TEAM. Sorted by week,
+   *             because it reads as a narrative down the table.
+   *
+   * Neither contains the other. Spending a team early can hand a later week a
+   * different opponent at nearly the same price -- a change with no damage --
+   * and the reshuffle can even improve a week, which is a change that is the
+   * opposite of a knock-on.
+   */
+  const priorProb = new Map(baseline.rows.map((r) => [r.week, r.prob]));
+  const priorTeam = new Map(baseline.rows.map((r) => [r.week, r.team]));
+
   const knockOn: KnockOn[] = [];
+  const changes: TeamChange[] = [];
+
   for (const row of merged) {
-    const prior = before.get(row.week);
-    if (prior == null || row.prob == null) continue;
-    if (row.prob < prior - 1e-9) {
-      knockOn.push({ week: row.week, before: prior, after: row.prob });
+    const wasProb = priorProb.get(row.week);
+    if (wasProb != null && row.prob != null && row.prob < wasProb - 1e-9) {
+      knockOn.push({ week: row.week, before: wasProb, after: row.prob });
+    }
+
+    // `has` rather than `get`, so a week absent from the baseline entirely is
+    // not mistaken for one whose pick was null.
+    if (priorTeam.has(row.week)) {
+      const wasTeam = priorTeam.get(row.week) ?? null;
+      if (wasTeam !== row.team) {
+        changes.push({
+          week: row.week,
+          before: wasTeam,
+          after: row.team,
+          pinned: forced.has(row.week),
+        });
+      }
     }
   }
+
   knockOn.sort((a, b) => b.before - b.after - (a.before - a.after));
+  changes.sort((a, b) => a.week - b.week);
 
   return {
     ...simulated,
@@ -300,6 +356,7 @@ export function buildSimulatedPlan(
     cost: baseline.survival - simulated.survival,
     livesCost: baseline.livesSurvival - simulated.livesSurvival,
     knockOn,
+    changes,
     problems,
   };
 }

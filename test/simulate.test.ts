@@ -135,6 +135,57 @@ describe("buildSimulatedPlan", () => {
     expect(out.knockOn[0]!.after).toBeCloseTo(0.5, 10);
   });
 
+  it("reports which teams moved, and which week you pinned", () => {
+    const out = buildSimulatedPlan(input, sim({ 1: "A" }), 3);
+    // Baseline is B,A,C; pinning A to week 1 gives A,C,B — so all three weeks
+    // change hands, but only week 1 is a choice the user made.
+    expect(out.changes).toEqual([
+      { week: 1, before: "B", after: "A", pinned: true },
+      { week: 2, before: "A", after: "C", pinned: false },
+      { week: 3, before: "C", after: "B", pinned: false },
+    ]);
+  });
+
+  it("orders changes by week, unlike knockOn which leads with the damage", () => {
+    const out = buildSimulatedPlan(input, sim({ 1: "A" }), 3);
+    expect(out.changes.map((c) => c.week)).toEqual([1, 2, 3]);
+    expect(out.knockOn.map((k) => k.week)).toEqual([3, 2]);
+  });
+
+  it("reports no changes when the pin matches the solved plan", () => {
+    expect(buildSimulatedPlan(input, sim({ 2: "A" }), 3).changes).toEqual([]);
+  });
+
+  it("an empty simulation reports no changes", () => {
+    expect(buildSimulatedPlan(input, sim(), 3).changes).toEqual([]);
+  });
+
+  /**
+   * The case that proves `changes` and `knockOn` are not redundant.
+   *
+   *        wk1    wk2
+   *   A    0.90   0.80
+   *   B    0.60   0.80
+   *
+   * Optimal is A,B or B,A — both 0.72. Pinning B to week 1 swaps week 2 from
+   * B to A at an identical 0.80, so the week changes hands without getting
+   * any worse. It belongs in `changes` and must NOT appear in `knockOn`.
+   */
+  it("a week can change team without getting worse", () => {
+    const flat: PlanInput = {
+      ...input,
+      matrix: matrixOf({ 1: { A: 0.9, B: 0.6 }, 2: { A: 0.8, B: 0.8 } }),
+      matchups: matchupsOf({ 1: ["A", "B"], 2: ["A", "B"] }),
+      available: ["A", "B"],
+      weeks: [1, 2],
+    };
+    const out = buildSimulatedPlan(flat, sim({ 1: "B" }), 3);
+
+    const wk2 = out.changes.find((c) => c.week === 2);
+    expect(wk2).toEqual({ week: 2, before: "B", after: "A", pinned: false });
+    expect(out.knockOn.map((k) => k.week)).not.toContain(2);
+  });
+
   it("banning a team re-solves without it", () => {
     const out = buildSimulatedPlan(input, sim({}, ["A"]), 3);
     expect(out.rows.map((r) => r.team)).not.toContain("A");

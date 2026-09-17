@@ -6,6 +6,7 @@ import {
   buildSimulatedPlan,
   isEmpty,
   pinnableTeams,
+  type TeamChange,
   type Simulation,
 } from "@/lib/model/simulate";
 import type { ModelConfig, ProbMatrix } from "@/lib/model/types";
@@ -63,6 +64,13 @@ export function PlanTable({
   const knockOn = useMemo(
     () => new Map(plan.knockOn.map((k) => [k.week, k])),
     [plan.knockOn],
+  );
+
+  // Only the reshuffles: the pinned row already announces itself with a ring
+  // and a filled select, so annotating it "was SF" would restate the obvious.
+  const movedByWeek = useMemo(
+    () => new Map(plan.changes.filter((c) => !c.pinned).map((c) => [c.week, c])),
+    [plan.changes],
   );
 
   function pin(week: number, team: string | null) {
@@ -253,6 +261,7 @@ export function PlanTable({
             {rows.map((r) => {
               const pinned = plan.forcedWeeks.has(r.week) && !showingGreedy;
               const hit = showingGreedy ? undefined : knockOn.get(r.week);
+              const moved = showingGreedy ? undefined : movedByWeek.get(r.week);
               return (
                 <tr
                   key={r.week}
@@ -274,6 +283,16 @@ export function PlanTable({
                         options={pinnableTeams(input, r.week, sim)}
                         onPin={pin}
                       />
+                    )}
+                    {moved && (
+                      <span
+                        className="mt-0.5 block text-xs text-slate-500"
+                        title={`Before your picks, week ${moved.week} was ${
+                          moved.before ?? "unassigned"
+                        }.`}
+                      >
+                        was {moved.before ?? "—"}
+                      </span>
                     )}
                   </td>
                   <td className="px-3 py-2 text-slate-400">
@@ -436,6 +455,43 @@ function CostBanner({
           {pct(worst.after)}.
         </p>
       )}
+      <MovedSummary changes={plan.changes} />
     </div>
+  );
+}
+
+/** How many reshuffled weeks to name before summarising the rest. */
+const MOVED_SHOWN = 5;
+
+/**
+ * The knock-on reshuffle, in one line.
+ *
+ * Only weeks the user did NOT pin: the pinned ones are their own doing and are
+ * already visible in the table. Capped, because a single early pin at a
+ * full-season horizon can move a dozen weeks and turn this into a paragraph.
+ */
+function MovedSummary({ changes }: { changes: TeamChange[] }) {
+  const moved = changes.filter((c) => !c.pinned);
+  if (moved.length === 0) return null;
+
+  const shown = moved.slice(0, MOVED_SHOWN);
+  const rest = moved.length - shown.length;
+
+  return (
+    <p className="mt-1.5 text-xs text-slate-400">
+      Also moves:{" "}
+      {shown.map((c, i) => (
+        <span key={c.week}>
+          {i > 0 && <span className="text-slate-600">, </span>}
+          <span className="text-slate-500">w{c.week}</span>{" "}
+          <span className="nums">
+            {c.before ?? "—"}
+            <span className="text-slate-600"> → </span>
+            <span className="text-slate-200">{c.after ?? "—"}</span>
+          </span>
+        </span>
+      ))}
+      {rest > 0 && <span className="text-slate-500"> and {rest} more</span>}
+    </p>
   );
 }
