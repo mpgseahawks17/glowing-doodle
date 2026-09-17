@@ -8,6 +8,7 @@ import {
   type Recommendation,
   type ScoredTeam,
 } from "./types";
+import type { MatchupContext } from "./matchup-context";
 
 /**
  * Blend Vegas and Silver into a single win probability.
@@ -136,6 +137,13 @@ function label(
 export interface WeekMatchup {
   opponent: string;
   isHome: boolean;
+  /**
+   * Rest/timing/familiarity flags for the badges. Optional so that callers
+   * constructing a matchup by hand (tests, fixtures) stay valid, and so a
+   * schedule row with no kickoff time degrades to "no badges" rather than
+   * throwing.
+   */
+  context?: MatchupContext;
 }
 
 /**
@@ -180,6 +188,7 @@ export function scoreTeams(
       team,
       opponent: matchup?.opponent ?? null,
       isHome: matchup?.isHome ?? null,
+      context: matchup?.context ?? null,
       vegasProb,
       silverProb,
       silverIsDerived: inputs?.silverIsDerived ?? false,

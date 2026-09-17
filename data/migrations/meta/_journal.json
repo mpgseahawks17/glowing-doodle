@@ -29,6 +29,13 @@
       "when": 1789615586561,
       "tag": "0003_friendly_power_man",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1789657608407,
+      "tag": "0004_easy_mojo",
+      "breakpoints": true
     }
   ]
 }

@@ -61,6 +61,12 @@ async function main() {
     awayTeam: r.away_team!,
     kickoffUtc:
       r.gameday && r.gametime ? `${r.gameday}T${r.gametime}:00` : (r.gameday ?? null),
+    // Venue, for the international-game badge. `stadium_id` is the identifying
+    // field; `stadium` is shown to the reader and `location` marks neutral
+    // sites, which include domestic ones. See lib/model/matchup-context.ts.
+    location: r.location ?? null,
+    stadium: r.stadium ?? null,
+    stadiumId: r.stadium_id ?? null,
     homeScore: numOrNull(r.home_score),
     awayScore: numOrNull(r.away_score),
   }));
@@ -76,6 +82,9 @@ async function main() {
             homeTeam: g.homeTeam,
             awayTeam: g.awayTeam,
             kickoffUtc: g.kickoffUtc,
+            location: g.location,
+            stadium: g.stadium,
+            stadiumId: g.stadiumId,
             homeScore: g.homeScore,
             awayScore: g.awayScore,
           },

@@ -2,6 +2,12 @@ import { and, asc, desc, eq, gte, inArray, lte } from "drizzle-orm";
 import { db, schema } from "../client";
 import type { ProbMatrix } from "@/lib/model/types";
 import type { WeekMatchup } from "@/lib/model/engine";
+import {
+  byeTeams,
+  foreignVenue,
+  isDivisional,
+  shortWeekLabel,
+} from "@/lib/model/matchup-context";
 
 /**
  * A snapshot is considered stale once it is this much older than the freshest
@@ -159,20 +165,90 @@ export async function buildProbMatrix(
   return { matrix, gameIds };
 }
 
+/**
+ * Division lookup for every team, used to flag divisional matchups.
+ * 32 rows, so this is a full-table read by design.
+ */
+async function divisionsByTeam(): Promise<
+  Map<string, { conference: string; division: string }>
+> {
+  const rows = await db
+    .select({
+      abbr: schema.teams.abbr,
+      conference: schema.teams.conference,
+      division: schema.teams.division,
+    })
+    .from(schema.teams);
+  return new Map(
+    rows.map((r) => [r.abbr, { conference: r.conference, division: r.division }]),
+  );
+}
+
+/** week -> the set of teams with a game that week. Absence from a week is a bye. */
+function playedIndex(
+  games: Array<{ week: number; homeTeam: string; awayTeam: string }>,
+): Map<number, Set<string>> {
+  const out = new Map<number, Set<string>>();
+  for (const g of games) {
+    let set = out.get(g.week);
+    if (!set) out.set(g.week, (set = new Set()));
+    set.add(g.homeTeam);
+    set.add(g.awayTeam);
+  }
+  return out;
+}
+
 /** team -> opponent + home/away for a single week. Byes are simply absent. */
 export async function matchupsForWeek(
   season: number,
   week: number,
 ): Promise<Map<string, WeekMatchup>> {
-  const games = await db
-    .select()
-    .from(schema.games)
-    .where(and(eq(schema.games.season, season), eq(schema.games.week, week)));
+  // The previous week comes along so that "off a bye" can be answered; the
+  // divisions table is 32 rows. Both are cheap next to the odds joins.
+  const [games, divisions] = await Promise.all([
+    db
+      .select()
+      .from(schema.games)
+      .where(
+        and(
+          eq(schema.games.season, season),
+          inArray(schema.games.week, [week - 1, week]),
+        ),
+      ),
+    divisionsByTeam(),
+  ]);
+
+  const played = playedIndex(games);
+  const onBye = byeTeams(played, week - 1, divisions.keys());
 
   const out = new Map<string, WeekMatchup>();
   for (const g of games) {
-    out.set(g.homeTeam, { opponent: g.awayTeam, isHome: true });
-    out.set(g.awayTeam, { opponent: g.homeTeam, isHome: false });
+    if (g.week !== week) continue;
+    const divisional = isDivisional(
+      divisions.get(g.homeTeam),
+      divisions.get(g.awayTeam),
+    );
+    const shortWeek = shortWeekLabel(g.kickoffUtc);
+    const base = { shortWeek, divisional, foreign: foreignVenue(g.stadiumId) };
+
+    out.set(g.homeTeam, {
+      opponent: g.awayTeam,
+      isHome: true,
+      context: {
+        ...base,
+        offBye: onBye.has(g.homeTeam),
+        oppOffBye: onBye.has(g.awayTeam),
+      },
+    });
+    out.set(g.awayTeam, {
+      opponent: g.homeTeam,
+      isHome: false,
+      context: {
+        ...base,
+        offBye: onBye.has(g.awayTeam),
+        oppOffBye: onBye.has(g.homeTeam),
+      },
+    });
   }
   return out;
 }
@@ -184,17 +260,54 @@ export async function matchupsForWeek(
 export async function allMatchups(
   season: number,
 ): Promise<Record<string, Record<string, WeekMatchup>>> {
-  const games = await db
-    .select()
-    .from(schema.games)
-    .where(eq(schema.games.season, season));
+  const [games, divisions] = await Promise.all([
+    db.select().from(schema.games).where(eq(schema.games.season, season)),
+    divisionsByTeam(),
+  ]);
+
+  const played = playedIndex(games);
+  // Bye sets are computed once per week rather than per game: the same
+  // previous-week lookup serves all 16 games in a week.
+  const byeCache = new Map<number, Set<string>>();
+  const byesBefore = (week: number): Set<string> => {
+    let set = byeCache.get(week);
+    if (!set) byeCache.set(week, (set = byeTeams(played, week - 1, divisions.keys())));
+    return set;
+  };
 
   const out: Record<string, Record<string, WeekMatchup>> = {};
   for (const g of games) {
     const week = String(g.week);
     out[week] ??= {};
-    out[week][g.homeTeam] = { opponent: g.awayTeam, isHome: true };
-    out[week][g.awayTeam] = { opponent: g.homeTeam, isHome: false };
+
+    const onBye = byesBefore(g.week);
+    const base = {
+      shortWeek: shortWeekLabel(g.kickoffUtc),
+      divisional: isDivisional(
+        divisions.get(g.homeTeam),
+        divisions.get(g.awayTeam),
+      ),
+      foreign: foreignVenue(g.stadiumId),
+    };
+
+    out[week][g.homeTeam] = {
+      opponent: g.awayTeam,
+      isHome: true,
+      context: {
+        ...base,
+        offBye: onBye.has(g.homeTeam),
+        oppOffBye: onBye.has(g.awayTeam),
+      },
+    };
+    out[week][g.awayTeam] = {
+      opponent: g.homeTeam,
+      isHome: false,
+      context: {
+        ...base,
+        offBye: onBye.has(g.awayTeam),
+        oppOffBye: onBye.has(g.homeTeam),
+      },
+    };
   }
   return out;
 }

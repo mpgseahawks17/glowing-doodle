@@ -1,3 +1,5 @@
+import type { MatchupContext } from "./matchup-context";
+
 /** Per-team, per-week probability inputs from each source. */
 export interface ProbInputs {
   vegas?: number;
@@ -59,6 +61,8 @@ export interface ScoredTeam {
   /** Opponent this week, with home/away. null when on bye. */
   opponent: string | null;
   isHome: boolean | null;
+  /** Rest/timing/familiarity flags for the badges. Absent when on bye. */
+  context: MatchupContext | null;
   vegasProb: number | null;
   silverProb: number | null;
   silverIsDerived: boolean;
