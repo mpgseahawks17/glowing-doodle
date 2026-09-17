@@ -29,3 +29,12 @@ data/silver/*
 
 # TypeScript incremental build cache
 tsconfig.tsbuildinfo
+
+# Generated snapshot of the probability board, and the standalone pages built
+# from it. Same reasoning as data/silver/ above: these embed ELWAY's per-game
+# projections for all 256 games, and this repo is public. The template and the
+# build script ARE source and stay tracked -- run `node export-grid.mjs &&
+# node artifact/build.mjs` to regenerate the pages locally.
+grid-data.json
+artifact/grid.html
+artifact/survivor-odds-board.html

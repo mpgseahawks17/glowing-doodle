@@ -1,0 +1,463 @@
+<title>Survivor Odds Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+  :root {
+    --ground: #F7F5F0;
+    --panel: #FFFFFF;
+    --raised: #EFECE5;
+    --line: #DED8CC;
+    --ink: #1B2228;
+    --muted: #6A7680;
+    --accent: #9C5C22;
+    --accent-ink: #FFFFFF;
+    --p-low: #A8503B;
+    --p-mid: #A8812C;
+    --p-high: #2C6851;
+    --bar-alpha: 0.20;
+    --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  }
+  :root:not([data-theme="light"]) {
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0E1418;
+      --panel: #161E24;
+      --raised: #1D272E;
+      --line: #27333D;
+      --ink: #E4EBEF;
+      --muted: #8193A0;
+      --accent: #D9A441;
+      --accent-ink: #14191D;
+      --p-low: #8C4A3F;
+      --p-mid: #8A7238;
+      --p-high: #2F6B57;
+      --bar-alpha: 0.42;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #0E1418;
+    --panel: #161E24;
+    --raised: #1D272E;
+    --line: #27333D;
+    --ink: #E4EBEF;
+    --muted: #8193A0;
+    --accent: #D9A441;
+    --accent-ink: #14191D;
+    --p-low: #8C4A3F;
+    --p-mid: #8A7238;
+    --p-high: #2F6B57;
+    --bar-alpha: 0.42;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.45;
+    -webkit-text-size-adjust: 100%;
+  }
+  .nums { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  .wrap { max-width: 880px; margin: 0 auto; padding: 0 0 48px; }
+
+  header {
+    position: sticky; top: 0; z-index: 30;
+    background: var(--ground);
+    border-bottom: 1px solid var(--line);
+    padding: 14px 16px 0;
+  }
+  .masthead { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  h1 {
+    margin: 0; font-size: 17px; font-weight: 700; letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+  .season { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+
+  .stamp {
+    margin: 6px 0 0; font-size: 11.5px; color: var(--muted);
+    display: flex; flex-wrap: wrap; gap: 4px 14px;
+  }
+  .stamp b { font-weight: 500; color: var(--ink); font-family: var(--mono); }
+  .stale { color: var(--accent); }
+
+  .views { display: flex; gap: 6px; margin: 12px 0 0; }
+  .views button {
+    flex: 0 0 auto; appearance: none; cursor: pointer;
+    font: 500 13px/1 var(--sans); letter-spacing: 0.01em;
+    padding: 9px 14px; min-height: 38px;
+    border: 1px solid var(--line); border-bottom: none;
+    border-radius: 6px 6px 0 0;
+    background: transparent; color: var(--muted);
+  }
+  .views button[aria-pressed="true"] {
+    background: var(--panel); color: var(--ink); font-weight: 600;
+    box-shadow: inset 0 2px 0 var(--accent);
+  }
+
+  .rail {
+    display: flex; gap: 6px; overflow-x: auto; padding: 12px 16px;
+    scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch;
+    border-bottom: 1px solid var(--line);
+  }
+  .rail::-webkit-scrollbar { height: 0; }
+  .rail button {
+    scroll-snap-align: center; flex: 0 0 auto; cursor: pointer;
+    min-width: 46px; min-height: 44px; padding: 6px 10px;
+    border: 1px solid var(--line); border-radius: 7px;
+    background: var(--panel); color: var(--muted);
+    font: 600 14px/1.1 var(--mono); font-variant-numeric: tabular-nums;
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+  }
+  .rail button span { font: 400 9px/1 var(--sans); letter-spacing: 0.06em; text-transform: uppercase; }
+  .rail button[aria-pressed="true"] {
+    background: var(--accent); color: var(--accent-ink); border-color: var(--accent);
+  }
+  .rail button.done { opacity: 0.45; }
+
+  .basis {
+    margin: 0; padding: 9px 16px 0; font-size: 11.5px; color: var(--muted);
+    display: flex; align-items: center; gap: 7px;
+  }
+  .basis b { font-weight: 600; color: var(--ink); }
+  .dot { width: 6px; height: 6px; border-radius: 50%; flex: 0 0 auto; }
+  .basis.elway b { color: var(--accent); }
+
+  /* ---- ranked view ---- */
+  .rows { padding: 4px 10px 0; }
+  .row {
+    position: relative; display: grid;
+    grid-template-columns: 22px 46px 1fr auto;
+    align-items: center; gap: 10px;
+    padding: 11px 12px; margin-top: 4px;
+    border: 1px solid var(--line); border-radius: 7px;
+    background: var(--panel); overflow: hidden;
+  }
+  .row::before {
+    content: ""; position: absolute; inset: 0 auto 0 0;
+    width: var(--fill, 0%); background: var(--tone);
+    opacity: var(--bar-alpha);
+  }
+  .row > * { position: relative; }
+  .rank { font: 500 12px/1 var(--mono); color: var(--muted); }
+  .team { font: 700 16px/1 var(--sans); letter-spacing: -0.01em; }
+  .match { font-size: 12.5px; color: var(--muted); }
+  .match em { font-style: normal; opacity: 0.7; }
+  .pct { font: 600 17px/1 var(--mono); font-variant-numeric: tabular-nums; }
+  .pct small { font-size: 11px; font-weight: 400; color: var(--muted); }
+  .split { grid-column: 3 / -1; font: 400 11px/1.3 var(--mono); color: var(--muted); }
+  .row.bye { opacity: 0.5; }
+  .row.bye .pct { color: var(--muted); font-size: 13px; }
+  .row.played .team::after {
+    content: "final"; margin-left: 7px; font: 400 9.5px/1 var(--sans);
+    letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted);
+  }
+
+  /* ---- grid view ---- */
+  .gridwrap { overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 4px 0 0; }
+  table { border-collapse: separate; border-spacing: 0; font-size: 11px; }
+  th, td { padding: 0; }
+  thead th {
+    position: sticky; top: 0; z-index: 2;
+    background: var(--ground); color: var(--muted);
+    font: 600 11px/1 var(--mono); font-variant-numeric: tabular-nums;
+    padding: 9px 0 8px; min-width: 42px; cursor: pointer;
+    border-bottom: 1px solid var(--line);
+  }
+  thead th.sorted { color: var(--accent-ink); background: var(--accent); }
+  /* Weeks with no bookmaker prices at all — ELWAY is carrying them alone. */
+  thead th.elwayonly::after {
+    content: ""; display: block; width: 14px; height: 2px; margin: 4px auto 0;
+    background: var(--accent); border-radius: 1px;
+  }
+  thead th.sorted.elwayonly::after { background: var(--accent-ink); }
+  thead th:first-child, tbody th {
+    position: sticky; left: 0; z-index: 3;
+    background: var(--ground); min-width: 48px;
+    text-align: left; padding-left: 12px;
+  }
+  thead th:first-child { z-index: 4; cursor: default; }
+  tbody th {
+    font: 700 12px/1 var(--sans); color: var(--ink);
+    border-bottom: 1px solid var(--line); height: 38px;
+  }
+  tbody td {
+    text-align: center; border-bottom: 1px solid var(--line);
+    background: var(--tone, transparent);
+    height: 38px; min-width: 42px;
+  }
+  tbody td .op { display: block; font: 400 9px/1 var(--sans); color: var(--muted); }
+  tbody td .vp { display: block; font: 600 12px/1.2 var(--mono); font-variant-numeric: tabular-nums; }
+  tbody td.bye { color: var(--muted); font-size: 13px; }
+  tbody td.done { opacity: 0.4; }
+
+  .legend {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 16px 16px 0; font-size: 11.5px; color: var(--muted);
+  }
+  .ramp { display: flex; height: 8px; width: 132px; border-radius: 4px; overflow: hidden; }
+  .ramp i { flex: 1; }
+
+  footer {
+    padding: 20px 16px 0; font-size: 11.5px; line-height: 1.6; color: var(--muted);
+    border-top: 1px solid var(--line); margin-top: 22px;
+  }
+  footer p { margin: 0 0 8px; max-width: 62ch; }
+  footer code { font-family: var(--mono); font-size: 11px; color: var(--ink); }
+
+  button:focus-visible, th:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .row, .rail button { transition: background-color .12s ease, color .12s ease; }
+  }
+  @media (min-width: 620px) {
+    body { font-size: 15.5px; }
+    h1 { font-size: 20px; }
+    .row { grid-template-columns: 26px 54px 1fr 150px auto; }
+    .split { grid-column: auto; text-align: right; }
+  }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="masthead">
+      <h1>Survivor Odds Board</h1>
+      <div class="season nums" id="season"></div>
+    </div>
+    <div class="stamp" id="stamp"></div>
+    <div class="views">
+      <button id="vRanked" aria-pressed="true">Ranked</button>
+      <button id="vGrid" aria-pressed="false">Grid</button>
+    </div>
+  </header>
+
+  <div class="rail" id="rail"></div>
+  <p class="basis" id="basis"></p>
+
+  <main>
+    <div id="ranked"><div class="rows" id="rows"></div></div>
+    <div id="grid" hidden>
+      <div class="gridwrap"><table id="table"></table></div>
+    </div>
+  </main>
+
+  <div class="legend">
+    <span>Win probability</span>
+    <span class="ramp" aria-hidden="true"><i id="r1"></i><i id="r2"></i><i id="r3"></i><i id="r4"></i><i id="r5"></i></span>
+    <span class="nums">30% → 90%</span>
+    <span>· <span class="nums">°</span> single book</span>
+    <span>· <span class="nums">—</span> bye</span>
+    <span>· <span style="display:inline-block;width:14px;height:2px;background:var(--accent);vertical-align:middle"></span> ELWAY only</span>
+  </div>
+
+  <footer>
+    <p><b>Market first.</b> Each number is the de-vigged moneyline wherever a price
+    exists, falling back to Silver Bulletin's ELWAY projection only where the market
+    has not priced the game yet. Bookmakers post lines about eight weeks out, so the
+    late weeks run on ELWAY alone.</p>
+    <p>Market prices come from a multi-book median for the current round and a
+    single-book lookahead beyond it; <code>°</code> marks the single-book values.
+    ELWAY is a win/loss/tie model, so a game's two sides sum to slightly under 100%.
+    Where both exist, both are shown under the row — the headline figure is the
+    market one.</p>
+    <p id="snapshot"></p>
+  </footer>
+</div>
+
+<script>
+  const DATA = /*DATA*/;
+
+  const $ = (id) => document.getElementById(id);
+  const WEEKS = Object.keys(DATA.weeks).map(Number).sort((a, b) => a - b);
+  const TEAMS = Object.keys(DATA.teams).sort();
+
+  /* Probability ramp: clay → gold → pine, clamped to the range NFL moneylines
+     actually occupy so the scale spends its contrast where the numbers live. */
+  const STOPS = [
+    [0.30, [168, 80, 59]],
+    [0.55, [168, 129, 44]],
+    [0.90, [44, 104, 81]],
+  ];
+  const DARK_STOPS = [
+    [0.30, [140, 74, 63]],
+    [0.55, [138, 114, 56]],
+    [0.90, [47, 107, 87]],
+  ];
+  const isDark = () => {
+    const t = document.documentElement.getAttribute("data-theme");
+    if (t === "dark") return true;
+    if (t === "light") return false;
+    return matchMedia("(prefers-color-scheme: dark)").matches;
+  };
+  function tone(p) {
+    const stops = isDark() ? DARK_STOPS : STOPS;
+    const x = Math.max(stops[0][0], Math.min(stops[2][0], p));
+    const [lo, hi] = x <= stops[1][0] ? [stops[0], stops[1]] : [stops[1], stops[2]];
+    const t = (x - lo[0]) / (hi[0] - lo[0]);
+    const c = lo[1].map((v, i) => Math.round(v + t * (hi[1][i] - v)));
+    return `rgb(${c[0]} ${c[1]} ${c[2]})`;
+  }
+
+  let week = WEEKS.find((w) => Object.values(DATA.weeks[w]).some((c) => !c.pl)) ?? WEEKS[0];
+  let view = "ranked";
+  let sortWeek = null;
+
+  const pct = (v) => (v == null ? null : (v * 100).toFixed(1));
+
+  function header() {
+    $("season").textContent = DATA.season;
+    const gen = new Date(DATA.generatedAt);
+    const sv = DATA.silverAsOf ? new Date(DATA.silverAsOf) : null;
+    const days = sv ? Math.round((gen - sv) / 86400000) : null;
+    $("stamp").innerHTML =
+      `<span>Snapshot <b>${gen.toISOString().slice(0, 10)}</b></span>` +
+      (sv
+        ? `<span>ELWAY updated <b class="${days >= 6 ? "stale" : ""}">` +
+          `${sv.toISOString().slice(0, 10)}</b>` +
+          (days >= 2 ? ` <span class="${days >= 6 ? "stale" : ""}">(${days}d earlier)</span>` : "") +
+          `</span>`
+        : "");
+    $("snapshot").textContent =
+      "This page is a fixed snapshot taken " + gen.toISOString().slice(0, 16).replace("T", " ") +
+      " UTC. It does not update on its own — regenerate it to refresh the numbers.";
+    [1, 2, 3, 4, 5].forEach((n, i) =>
+      ($("r" + n).style.background = tone(0.3 + (i * 0.6) / 4)),
+    );
+  }
+
+  function rail() {
+    $("rail").innerHTML = WEEKS.map((w) => {
+      const cells = Object.values(DATA.weeks[w]);
+      const done = cells.length > 0 && cells.every((c) => c.pl);
+      return `<button data-w="${w}" aria-pressed="${w === week}" class="${done ? "done" : ""}">` +
+        `<span>wk</span>${w}</button>`;
+    }).join("");
+    $("rail").querySelectorAll("button").forEach((b) =>
+      b.addEventListener("click", () => {
+        week = Number(b.dataset.w);
+        render();
+        b.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" });
+      }),
+    );
+  }
+
+  function ranked() {
+    const wk = DATA.weeks[week] || {};
+    const playing = TEAMS.filter((t) => wk[t]).map((t) => ({ t, ...wk[t] }));
+    const bye = TEAMS.filter((t) => !wk[t]);
+    playing.sort((a, b) => (b.p ?? -1) - (a.p ?? -1) || a.t.localeCompare(b.t));
+
+    const rows = playing.map((r, i) => {
+      const p = r.p;
+      const single = r.b === 1;
+      const parts = [];
+      if (r.v != null) parts.push(`mkt ${pct(r.v)}${single ? "°" : ""}`);
+      if (r.s != null) parts.push(`elway ${pct(r.s)}`);
+      return `<div class="row ${r.pl ? "played" : ""}" style="--fill:${p == null ? 0 : (p * 100).toFixed(1)}%;--tone:${tone(p ?? 0.3)}">
+        <div class="rank nums">${i + 1}</div>
+        <div class="team">${r.t}</div>
+        <div class="match">${r.h ? "vs" : "<em>@</em>"} ${r.o}</div>
+        <div class="pct">${p == null ? "—" : pct(p) + "<small>%</small>"}</div>
+        ${parts.length ? `<div class="split">${parts.join("   ")}</div>` : ""}
+      </div>`;
+    });
+
+    if (bye.length) {
+      rows.push(
+        `<div class="row bye" style="--fill:0%"><div class="rank"></div>` +
+        `<div class="team">${bye.join(" ")}</div>` +
+        `<div class="match">on bye</div><div class="pct">—</div></div>`,
+      );
+    }
+    $("rows").innerHTML = rows.join("");
+  }
+
+  function grid() {
+    const order = sortWeek
+      ? [...TEAMS].sort((a, b) => {
+          const pa = DATA.weeks[sortWeek]?.[a]?.p ?? -1;
+          const pb = DATA.weeks[sortWeek]?.[b]?.p ?? -1;
+          return pb - pa || a.localeCompare(b);
+        })
+      : TEAMS;
+
+    const head = `<thead><tr><th scope="col">Team</th>` +
+      WEEKS.map((w) => {
+        const noMkt = !Object.values(DATA.weeks[w] || {}).some((c) => c.v != null);
+        const cls = [w === sortWeek ? "sorted" : "", noMkt ? "elwayonly" : ""]
+          .filter(Boolean).join(" ");
+        const label = noMkt ? `Week ${w} — ELWAY only, no market prices` : `Week ${w}`;
+        return `<th scope="col" data-w="${w}" tabindex="0" class="${cls}" title="${label}">${w}</th>`;
+      }).join("") +
+      `</tr></thead>`;
+
+    const body = `<tbody>` + order.map((t) => {
+      const cells = WEEKS.map((w) => {
+        const c = DATA.weeks[w]?.[t];
+        if (!c) return `<td class="bye">—</td>`;
+        const p = c.p;
+        return `<td class="${c.pl ? "done" : ""}" style="${p == null ? "" : `--tone:${tone(p)}`}">
+          <span class="op">${c.h ? "" : "@"}${c.o}</span>
+          <span class="vp">${p == null ? "·" : Math.round(p * 100)}</span></td>`;
+      }).join("");
+      return `<tr><th scope="row">${t}</th>${cells}</tr>`;
+    }).join("") + `</tbody>`;
+
+    $("table").innerHTML = head + body;
+    $("table").querySelectorAll("thead th[data-w]").forEach((th) => {
+      const go = () => {
+        const w = Number(th.dataset.w);
+        sortWeek = sortWeek === w ? null : w;
+        grid();
+      };
+      th.addEventListener("click", go);
+      th.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); }
+      });
+    });
+  }
+
+  /* Which source is actually behind this week's numbers. Worth stating: the
+     late weeks have no market prices at all, so they lean entirely on a
+     forecast that can be days old. */
+  function basis() {
+    const cells = Object.values(DATA.weeks[week] || {});
+    const hasMkt = cells.some((c) => c.v != null);
+    const el = $("basis");
+    el.classList.toggle("elway", !hasMkt);
+    el.innerHTML = hasMkt
+      ? `<span class="dot" style="background:${tone(0.82)}"></span>` +
+        `<span><b>Market prices</b> — moneylines, with ELWAY shown alongside</span>`
+      : `<span class="dot" style="background:var(--accent)"></span>` +
+        `<span><b>ELWAY only</b> — no bookmaker has priced week ${week} yet</span>`;
+  }
+
+  function render() {
+    rail();
+    basis();
+    // The basis line describes one week; in the grid every week is on screen at
+    // once, where the column markers carry the same information.
+    $("basis").hidden = view !== "ranked";
+    $("ranked").hidden = view !== "ranked";
+    $("grid").hidden = view !== "grid";
+    $("vRanked").setAttribute("aria-pressed", String(view === "ranked"));
+    $("vGrid").setAttribute("aria-pressed", String(view === "grid"));
+    if (view === "ranked") ranked(); else grid();
+  }
+
+  $("vRanked").addEventListener("click", () => { view = "ranked"; render(); });
+  $("vGrid").addEventListener("click", () => { view = "grid"; render(); });
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { header(); render(); });
+
+  header();
+  render();
+</script>
