@@ -1,6 +1,7 @@
 import { blendProb, scoreTeams, type WeekMatchup } from "./engine";
 import { INFEASIBLE, solveAssignment } from "./assign";
 import type { ModelConfig, ProbMatrix } from "./types";
+import type { MatchupContext } from "./matchup-context";
 
 /**
  * Build a multi-week pick plan.
@@ -28,6 +29,8 @@ export interface PlanRow {
   team: string | null;
   opponent: string | null;
   isHome: boolean | null;
+  /** Rest/timing/familiarity flags for the badges. Null on unassigned weeks. */
+  context?: MatchupContext | null;
   prob: number | null;
   /** Runners-up for that week, after earlier weeks have taken their teams. */
   alternatives: PlanAlternative[];
@@ -113,6 +116,7 @@ function greedyPlan(input: PlanInput): PlanRow[] {
       team: top.team,
       opponent: top.opponent,
       isHome: top.isHome,
+      context: top.context,
       prob: top.blendedProb,
       alternatives: alternativesFor(input, week, pool, top.team),
       cumulativeSurvival: survival,
@@ -186,6 +190,7 @@ function optimalPlan(input: PlanInput): PlanRow[] {
       team,
       opponent: matchup?.opponent ?? null,
       isHome: matchup?.isHome ?? null,
+      context: matchup?.context ?? null,
       prob,
       alternatives: alternativesFor(
         input,

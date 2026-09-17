@@ -192,6 +192,7 @@ function forcedRow(
     team,
     opponent: matchup.opponent,
     isHome: matchup.isHome,
+    context: matchup.context ?? null,
     prob,
     alternatives: [],
     cumulativeSurvival: 0,

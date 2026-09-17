@@ -10,6 +10,7 @@ import {
 } from "@/lib/model/simulate";
 import type { ModelConfig, ProbMatrix } from "@/lib/model/types";
 import type { WeekMatchup } from "@/lib/model/engine";
+import { MatchupBadges } from "./matchup-badges";
 import { probColor } from "./scorecard-table";
 
 const pct = (v: number) => `${(v * 100).toFixed(1)}%`;
@@ -285,6 +286,7 @@ export function PlanTable({
                           {r.isHome ? "vs" : "@"}
                         </span>{" "}
                         {r.opponent}
+                        <MatchupBadges context={r.context} opponent={r.opponent} />
                       </>
                     )}
                   </td>

@@ -39,6 +39,16 @@ export const games = sqliteTable(
     homeTeam: text("home_team").notNull().references(() => teams.abbr),
     awayTeam: text("away_team").notNull().references(() => teams.abbr),
     kickoffUtc: text("kickoff_utc"),
+    /** nflverse `location`: "Home", or "Neutral" for a neutral-site game. */
+    location: text("location"),
+    /** Venue name, e.g. "Wembley Stadium". Display only. */
+    stadium: text("stadium"),
+    /**
+     * nflverse venue code, e.g. "LON00". This is what identifies an
+     * international game -- see `INTERNATIONAL_VENUES`. Note the code is not a
+     * team prefix: Rogers Centre in Toronto is "BUF01".
+     */
+    stadiumId: text("stadium_id"),
     homeScore: integer("home_score"),
     awayScore: integer("away_score"),
   },

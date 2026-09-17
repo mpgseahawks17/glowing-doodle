@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { Recommendation, ScoredTeam } from "@/lib/model/types";
+import { MatchupBadges, BadgeLegend } from "./matchup-badges";
 
 const REC_STYLES: Record<Recommendation, string> = {
   "TOP PICK": "bg-emerald-500/15 text-emerald-300 ring-emerald-500/30",
@@ -345,6 +346,7 @@ export function ScorecardTable({
                   <>
                     <span className="text-slate-500">{r.isHome ? "vs" : "@"}</span>{" "}
                     {r.opponent}
+                    <MatchupBadges context={r.context} opponent={r.opponent} />
                   </>
                 )}
               </td>
@@ -450,6 +452,8 @@ export function ScorecardTable({
           ))}
         </tbody>
       </table>
+
+      <BadgeLegend />
 
       <p className="border-t border-slate-800/70 px-3 py-2 text-xs text-slate-500">
         Hover any column header for what it measures, or a{" "}
