@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  contentHash,
   parseElwaySheet,
   parseSheetMetadata,
   sheetCsvUrl,
@@ -112,6 +113,55 @@ describe("sheetCsvUrl", () => {
   it("encodes tab names", () => {
     expect(sheetCsvUrl("ABC123", "_embed_metadata")).toContain(
       "sheet=_embed_metadata",
+    );
+  });
+});
+
+/**
+ * Change detection. These guard the 2026-09-16 failure: the sheet's Data tab
+ * was rewritten -- all 256 games moved, week 1 dropped -- while its
+ * `_embed_metadata` tab still reported the previous `updated_at` and
+ * `data_version`. Keying on the source's field made the ingest report
+ * "Unchanged" across a week of real updates, so the fingerprint must come from
+ * the parsed numbers and nothing else.
+ */
+describe("contentHash", () => {
+  const games = (csv: string) => parseElwaySheet(csv).games;
+
+  it("is stable across repeated parses of identical input", () => {
+    expect(contentHash(games(sheet(...ROWS)))).toBe(
+      contentHash(games(sheet(...ROWS))),
+    );
+  });
+
+  it("ignores row order", () => {
+    const forward = contentHash(games(sheet(...ROWS)));
+    const reversed = contentHash(games(sheet(...[...ROWS].reverse())));
+    expect(reversed).toBe(forward);
+  });
+
+  it("changes when a single probability moves", () => {
+    const nudged = ROWS.map((r) => r.replace('"69.93"', '"69.94"'));
+    expect(contentHash(games(sheet(...nudged)))).not.toBe(
+      contentHash(games(sheet(...ROWS))),
+    );
+  });
+
+  it("changes when a week is dropped", () => {
+    expect(contentHash(games(sheet(ROWS[0]!, ROWS[1]!)))).not.toBe(
+      contentHash(games(sheet(...ROWS))),
+    );
+  });
+
+  it("does not depend on the source's own metadata", () => {
+    // The whole point: identical numbers hash the same no matter what the
+    // sheet claims about itself, and different numbers differ even when the
+    // sheet claims nothing changed.
+    const stale = parseSheetMetadata('key,value\nupdated_at,2026-09-09\n');
+    const fresh = parseSheetMetadata('key,value\nupdated_at,2026-09-16\n');
+    expect(stale.updatedAt).not.toBe(fresh.updatedAt);
+    expect(contentHash(games(sheet(...ROWS)))).toBe(
+      contentHash(games(sheet(...ROWS))),
     );
   });
 });

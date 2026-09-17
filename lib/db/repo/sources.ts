@@ -40,12 +40,34 @@ export interface GameSources {
 
 export type SourceKey = "silver" | "espn" | "oddsApi" | "nflverse";
 
+/**
+ * How ELWAY's vintage was established.
+ *
+ * Kept separate from `coverage` because ELWAY is the one source whose own
+ * timestamp cannot be taken at face value. See `changedAt` below.
+ */
+export interface SilverStamp {
+  /**
+   * When the numbers last actually changed: the earliest fetch still carrying
+   * the current content fingerprint. This is what the UI should age ELWAY by.
+   */
+  changedAt: string | null;
+  /** What the sheet claims about itself. Displayed for contrast, not trusted. */
+  sourceAsOf: string | null;
+  /**
+   * True when the numbers moved but the sheet's own stamp did not -- proof the
+   * stamp is not being maintained, and the reason `changedAt` exists.
+   */
+  stampUnreliable: boolean;
+}
+
 export interface SourceSummary {
   fromWeek: number;
   toWeek: number;
   games: GameSources[];
   /** Newest fetch time per source, and how many games in range it covers. */
   coverage: Record<SourceKey, { games: number; newest: string | null }>;
+  silverStamp: SilverStamp;
 }
 
 /**
@@ -87,7 +109,13 @@ export async function sourceComparison(
   };
 
   if (games.length === 0) {
-    return { fromWeek, toWeek, games: [], coverage: empty };
+    return {
+      fromWeek,
+      toWeek,
+      games: [],
+      coverage: empty,
+      silverStamp: { changedAt: null, sourceAsOf: null, stampUnreliable: false },
+    };
   }
 
   const ids = games.map((g) => g.gameId);
@@ -114,6 +142,32 @@ export async function sourceComparison(
 
   const latestSilver = new Map<string, (typeof silverRows)[number]>();
   for (const row of silverRows) latestSilver.set(row.gameId, row);
+
+  /**
+   * Resolve when the ELWAY numbers last changed.
+   *
+   * `silverRows` is already ascending by fetch time, so the last row carries
+   * the current fingerprint and the first row sharing it is when those numbers
+   * reached us. Doing it from rows we have avoids a second query.
+   */
+  const newestSilverRow = silverRows.at(-1);
+  const currentHash = newestSilverRow?.contentHash ?? null;
+  const silverChangedAt = currentHash
+    ? (silverRows.find((r) => r.contentHash === currentHash)?.fetchedAt ?? null)
+    : null;
+
+  // The stamp is provably unreliable once the numbers have moved well past the
+  // vintage the sheet still claims. 36h of slack absorbs ordinary publish lag.
+  const silverStamp: SilverStamp = {
+    changedAt: silverChangedAt,
+    sourceAsOf: newestSilverRow?.sourceAsOf ?? null,
+    stampUnreliable:
+      silverChangedAt != null &&
+      newestSilverRow?.sourceAsOf != null &&
+      Date.parse(`${silverChangedAt.replace(" ", "T")}Z`) -
+        Date.parse(newestSilverRow.sourceAsOf) >
+        36 * 3_600_000,
+  };
 
   const reading = (
     row: (typeof odds)[number] | undefined,
@@ -150,9 +204,10 @@ export async function sourceComparison(
         }
       : null;
 
-    // Age ELWAY by when Silver computed it, falling back to our fetch time for
-    // hand-entered rows that carry no vintage.
-    bump("silver", silver?.sourceAsOf ?? silver?.fetchedAt);
+    // Age ELWAY by when its numbers last CHANGED (resolved below), not by the
+    // sheet's own `sourceAsOf` -- that field is not reliably maintained and
+    // reported the forecast as a week stale on the day it was rewritten.
+    bump("silver", silverChangedAt ?? silver?.fetchedAt);
     bump("espn", espn?.fetchedAt);
     bump("oddsApi", oddsApi?.fetchedAt);
     bump("nflverse", nflverse?.fetchedAt);
@@ -171,7 +226,7 @@ export async function sourceComparison(
     };
   });
 
-  return { fromWeek, toWeek, games: rows, coverage };
+  return { fromWeek, toWeek, games: rows, coverage, silverStamp };
 }
 
 /**

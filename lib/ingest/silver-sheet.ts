@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { parseCsv } from "./csv";
 import { normalizeTeamAbbr } from "./team-map";
 
@@ -47,6 +48,36 @@ export interface SheetGame {
 export interface SheetMetadata {
   updatedAt: string | null;
   dataVersion: string | null;
+}
+
+/**
+ * Fingerprint the parsed games so we can detect a recompute ourselves.
+ *
+ * We used to key change detection on the sheet's own `data_version`. That is
+ * not safe: on 2026-09-16 every one of the 256 games carried different
+ * probabilities from the run before, week 1 had been dropped, and the
+ * `_embed_metadata` tab STILL reported `updated_at=2026-09-09` with an
+ * unchanged `data_version`. Silver refreshes the Data tab without always
+ * bumping the metadata tab, so trusting that field makes the ingest silently
+ * skip real updates and report "unchanged" indefinitely.
+ *
+ * Hashing what we actually parsed cannot drift out of sync with what we store.
+ * Sorted so row reordering alone does not read as a change.
+ */
+export function contentHash(games: SheetGame[]): string {
+  const canonical = games
+    .map((g) =>
+      [
+        g.week,
+        g.awayTeam,
+        g.homeTeam,
+        g.homeProb.toPrecision(12),
+        g.awayProb.toPrecision(12),
+      ].join("|"),
+    )
+    .sort()
+    .join("\n");
+  return createHash("sha256").update(canonical).digest("hex").slice(0, 16);
 }
 
 /** Plausible bounds for the implied tie. Anything outside means bad parsing. */

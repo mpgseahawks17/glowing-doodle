@@ -42,12 +42,20 @@ async function runStep(
   patterns: RegExp[],
 ): Promise<SourceResult> {
   try {
-    const { stdout } = await run(command, {
+    const { stdout, stderr } = await run(command, {
       cwd: process.cwd(),
       timeout: TIMEOUT_MS,
       maxBuffer: 10 * 1024 * 1024,
     });
-    return { source, status: "ok", detail: summarise(stdout, patterns) };
+    // Scripts warn on stderr. A successful run that nonetheless flags a problem
+    // -- a source whose timestamp has stopped moving, say -- must still surface
+    // that here, or the UI reports a clean refresh over a real warning.
+    return {
+      source,
+      status: "ok",
+      detail: summarise(`${stdout}
+${stderr}`, patterns),
+    };
   } catch (err) {
     const e = err as { stdout?: string; stderr?: string; message?: string };
     const detail =
@@ -98,10 +106,12 @@ export async function POST() {
   // ELWAY reads a public Google Sheet, so this needs no cookie or subscription
   // check -- see lib/ingest/silver-sheet.ts.
   results.push(
+    // WARNING first: a stuck source timestamp matters more than the row count,
+    // and matching "Unchanged" ahead of it would hide exactly that case.
     await runStep("ELWAY (all weeks)", "npm run ingest:silver:sheet", [
-      /^Unchanged —/,
-      /^Wrote \d+ Silver projections/,
       /^WARNING/,
+      /^Wrote \d+ Silver projections/,
+      /^Unchanged/,
     ]),
   );
 

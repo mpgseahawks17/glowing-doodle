@@ -202,19 +202,37 @@ export async function allMatchups(
 /**
  * Freshness for the staleness banner.
  *
- * For Silver this reports the SOURCE's own vintage (`sourceAsOf`), not when we
- * fetched it. Those differ by days and conflating them is actively misleading:
- * pressing Refresh re-pulls the same sheet, so fetch time resets to "now" while
- * the forecast underneath may be a week old. Market odds have no separate
- * vintage -- fetching them IS the vintage -- so `odds` stays a fetch time.
+ * For Silver this reports WHEN THE NUMBERS LAST CHANGED, which is neither the
+ * fetch time nor the source's own stamp.
+ *
+ * Fetch time is wrong because pressing Refresh re-pulls the same sheet: the
+ * clock resets to "now" while the forecast underneath may be a week old.
+ *
+ * The source's `sourceAsOf` was the obvious substitute and is also wrong -- it
+ * is not reliably maintained. On 2026-09-16 all 256 games carried new
+ * probabilities and week 1 had been dropped, while `updated_at` still read
+ * 2026-09-09. Reporting that stamp told the user ELWAY was a week stale at the
+ * exact moment it had just been rewritten.
+ *
+ * What we can defend is the first time WE saw the current numbers: the earliest
+ * fetch carrying the live `contentHash`. That is a lower bound on freshness --
+ * the data is no older than the source claims and no newer than when we saw it
+ * change -- and unlike the other two it cannot silently lie.
+ *
+ * Market odds have no separate vintage -- fetching them IS the vintage -- so
+ * `odds` stays a fetch time.
  */
 export async function dataFreshness(): Promise<{
   odds: string | null;
-  /** When Silver last recomputed. Falls back to fetch time for manual rows. */
+  /** When the ELWAY numbers last changed. Falls back to fetch time. */
   silver: string | null;
   /** When we last pulled it, for the tooltip. */
   silverFetchedAt: string | null;
   silverMethod: string | null;
+  /** The source's own claimed vintage -- shown, but not trusted. See above. */
+  silverSourceAsOf: string | null;
+  /** True when the numbers moved while the source's stamp did not. */
+  silverStampUnreliable: boolean;
 }> {
   const [newestOdds] = await db
     .select({ fetchedAt: schema.oddsSnapshots.fetchedAt })
@@ -227,15 +245,34 @@ export async function dataFreshness(): Promise<{
       fetchedAt: schema.silverProjections.fetchedAt,
       sourceAsOf: schema.silverProjections.sourceAsOf,
       method: schema.silverProjections.ingestMethod,
+      contentHash: schema.silverProjections.contentHash,
     })
     .from(schema.silverProjections)
     .orderBy(desc(schema.silverProjections.fetchedAt))
     .limit(1);
 
+  // Earliest fetch still carrying the current fingerprint: when these exact
+  // numbers first reached us, rather than when we last re-read them.
+  let changedAt: string | null = null;
+  if (newestSilver?.contentHash) {
+    const [firstSeen] = await db
+      .select({ fetchedAt: schema.silverProjections.fetchedAt })
+      .from(schema.silverProjections)
+      .where(eq(schema.silverProjections.contentHash, newestSilver.contentHash))
+      .orderBy(asc(schema.silverProjections.fetchedAt))
+      .limit(1);
+    changedAt = firstSeen?.fetchedAt ?? null;
+  }
+
   return {
     odds: newestOdds?.fetchedAt ?? null,
-    silver: newestSilver?.sourceAsOf ?? newestSilver?.fetchedAt ?? null,
+    silver: changedAt ?? newestSilver?.sourceAsOf ?? newestSilver?.fetchedAt ?? null,
     silverFetchedAt: newestSilver?.fetchedAt ?? null,
     silverMethod: newestSilver?.method ?? null,
+    silverSourceAsOf: newestSilver?.sourceAsOf ?? null,
+    silverStampUnreliable:
+      changedAt != null &&
+      newestSilver?.sourceAsOf != null &&
+      Date.parse(changedAt) - Date.parse(newestSilver.sourceAsOf) > 36 * 3600_000,
   };
 }

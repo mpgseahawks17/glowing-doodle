@@ -57,10 +57,12 @@ export function FreshnessBanner({
         <span
           title={
             silverFetchedAt
-              ? `ELWAY last recomputed ${silver ?? "unknown"}. ` +
+              ? `ELWAY's numbers last changed ${silver ?? "unknown"}. ` +
                 `We last fetched it ${silverFetchedAt}. Refreshing re-pulls the ` +
                 `same sheet — it cannot make the forecast newer than Silver has ` +
-                `published it.`
+                `published it. Age is measured from when the numbers moved, not ` +
+                `from the sheet's own timestamp, which Silver does not keep ` +
+                `current. See the Sources tab.`
               : undefined
           }
         >

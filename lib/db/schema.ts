@@ -122,8 +122,20 @@ export const silverProjections = sqliteTable(
      * Null for hand-entered rows unless `--as-of` is passed.
      */
     sourceAsOf: text("source_as_of"),
-    /** e.g. "forecasts-v1-16649-8e7e4e3f" -- changes when Silver recomputes. */
+    /**
+     * The source's own version string, e.g. "forecasts-v1-16649-8e7e4e3f".
+     *
+     * Recorded for provenance only -- do NOT use it to detect a recompute.
+     * Silver updates the sheet's Data tab without reliably bumping this field:
+     * on 2026-09-16 all 256 games had moved while this string and `sourceAsOf`
+     * both still read as of 2026-09-09. Use `contentHash` instead.
+     */
     dataVersion: text("data_version"),
+    /**
+     * Our own fingerprint of the parsed games -- the authoritative
+     * change-detection key. See contentHash() in lib/ingest/silver-sheet.ts.
+     */
+    contentHash: text("content_hash"),
     sourceNote: text("source_note"),
   },
   (t) => ({

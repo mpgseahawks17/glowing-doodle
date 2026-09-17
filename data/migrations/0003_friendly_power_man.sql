@@ -1,0 +1,1 @@
+ALTER TABLE `silver_projections` ADD `content_hash` text;

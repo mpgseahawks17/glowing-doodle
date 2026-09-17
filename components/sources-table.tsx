@@ -86,6 +86,7 @@ export function SourcesTable({
   }
 
   const cov = summary.coverage;
+  const stamp = summary.silverStamp;
 
   return (
     <div>
@@ -99,7 +100,15 @@ export function SourcesTable({
         </button>
 
         <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-400">
-          <span title="When Silver last recomputed, not when we fetched it">
+          <span
+            title={
+              "When the ELWAY numbers last changed — not when we fetched them, " +
+              "and not the sheet's own timestamp" +
+              (stamp.sourceAsOf
+                ? `, which reads ${stamp.sourceAsOf.slice(0, 10)}.`
+                : ".")
+            }
+          >
             ELWAY:{" "}
             <span
               className={
@@ -113,6 +122,9 @@ export function SourcesTable({
               {ago(cov.silver.newest, mounted)}
             </span>
             <span className="ml-1 text-slate-600">({cov.silver.games} games)</span>
+            {stamp.stampUnreliable && (
+              <span className="ml-1 cursor-help text-amber-500">*</span>
+            )}
           </span>
           <span>
             ESPN:{" "}
@@ -157,6 +169,26 @@ export function SourcesTable({
         </ul>
       )}
 
+      {stamp.stampUnreliable && (
+        <p className="mb-4 rounded-lg bg-amber-950/30 px-4 py-3 text-xs leading-relaxed text-amber-200/90 ring-1 ring-amber-900/50">
+          <span className="font-semibold text-amber-300">
+            * ELWAY&rsquo;s sheet under-reports its own age.
+          </span>{" "}
+          Its numbers last changed{" "}
+          <strong className="text-amber-100">
+            {ago(stamp.changedAt, mounted)}
+          </strong>
+          , but the sheet still stamps itself{" "}
+          <strong className="text-amber-100">
+            {stamp.sourceAsOf?.slice(0, 10)}
+          </strong>
+          . Silver rewrites the data without always updating that field, so we
+          time ELWAY by when its numbers actually moved instead. Reading the
+          sheet&rsquo;s stamp is what made this tab report a week-old forecast
+          on the day it had just been refreshed.
+        </p>
+      )}
+
       <div className="max-h-[70vh] overflow-auto rounded-lg ring-1 ring-slate-800">
         <table className="w-full min-w-[820px] border-collapse text-sm nums">
           <thead className="sticky top-0 z-10">
@@ -193,7 +225,9 @@ export function SourcesTable({
         Odds API only ever returns the current round, so its column is
         legitimately blank for later weeks — that is the API&rsquo;s shape, not
         missing data. <span className="text-slate-600">°</span> marks a
-        single-book line rather than a median.
+        single-book line rather than a median. ELWAY&rsquo;s age is measured
+        from when its numbers last changed, not from the timestamp the sheet
+        publishes about itself.
       </p>
     </div>
   );
