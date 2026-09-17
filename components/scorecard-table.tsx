@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import type { Recommendation, ScoredTeam } from "@/lib/model/types";
 
 const REC_STYLES: Record<Recommendation, string> = {
@@ -85,6 +86,138 @@ function scoreHint(row: ScoredTeam): string {
   );
 }
 
+/**
+ * Sorting.
+ *
+ * The default is the model's own ranking (Score, descending) -- that ordering
+ * IS the recommendation, so it has to be what the tab opens on and what a
+ * third click returns you to.
+ *
+ * Two rules keep a re-sorted table honest:
+ *
+ *  - Missing values always sink. A team on a bye has no Vegas number; sorting
+ *    ascending must not float it to the top as though it were the weakest
+ *    option, because it is not an option at all.
+ *  - The # column keeps showing the MODEL's rank, never the row position.
+ *    Re-sorting is a way to read the same ranking from another angle; renumbering
+ *    rows 1..32 under a Vegas sort would invent a ranking the model never made.
+ */
+type SortKey =
+  | "rank"
+  | "team"
+  | "matchup"
+  | "vegas"
+  | "silver"
+  | "diff"
+  | "blend"
+  | "pickNow"
+  | "pickLater"
+  | "score"
+  | "rec";
+
+type Dir = "asc" | "desc";
+
+/** Display order of the labels, used when sorting by Rec. */
+const REC_ORDER: Record<Recommendation, number> = {
+  "TOP PICK": 0,
+  STRONG: 1,
+  SAVE: 2,
+  AVAILABLE: 3,
+};
+
+/** Text columns read naturally A-Z; numeric ones are most useful biggest-first. */
+const FIRST_DIR: Record<SortKey, Dir> = {
+  rank: "asc",
+  team: "asc",
+  matchup: "asc",
+  vegas: "desc",
+  silver: "desc",
+  diff: "desc",
+  blend: "desc",
+  pickNow: "desc",
+  pickLater: "desc",
+  score: "desc",
+  rec: "asc",
+};
+
+const VALUE: Record<SortKey, (r: ScoredTeam) => number | string | null> = {
+  // An unranked team has rank 0; treat it as absent so it sinks like any other
+  // missing value rather than leading an ascending sort.
+  rank: (r) => r.rank || null,
+  team: (r) => r.team,
+  matchup: (r) => r.opponent,
+  vegas: (r) => r.vegasProb,
+  silver: (r) => r.silverProb,
+  diff: (r) => r.sourceDelta,
+  blend: (r) => r.blendedProb,
+  pickNow: (r) => r.pickNow,
+  pickLater: (r) => (r.pickLater > 0 ? r.pickLater : null),
+  score: (r) => r.score,
+  rec: (r) => REC_ORDER[r.recommendation],
+};
+
+function compare(a: ScoredTeam, b: ScoredTeam, key: SortKey, dir: Dir): number {
+  const av = VALUE[key](a);
+  const bv = VALUE[key](b);
+
+  // Nulls last in BOTH directions -- see the note above.
+  if (av === null && bv === null) return a.team.localeCompare(b.team);
+  if (av === null) return 1;
+  if (bv === null) return -1;
+
+  const cmp =
+    typeof av === "string" && typeof bv === "string"
+      ? av.localeCompare(bv)
+      : Number(av) - Number(bv);
+
+  // Ties fall back to team name so the order is stable and reproducible.
+  return cmp === 0 ? a.team.localeCompare(b.team) : dir === "asc" ? cmp : -cmp;
+}
+
+function SortHeader({
+  label,
+  sortKey,
+  active,
+  dir,
+  onSort,
+  align = "left",
+  title,
+}: {
+  label: string;
+  sortKey: SortKey;
+  active: boolean;
+  dir: Dir;
+  onSort: (key: SortKey) => void;
+  align?: "left" | "right";
+  title?: string;
+}) {
+  return (
+    <th
+      className={`px-3 py-2.5 font-medium ${align === "right" ? "text-right" : ""}`}
+      aria-sort={active ? (dir === "asc" ? "ascending" : "descending") : "none"}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        title={title}
+        className={`group inline-flex w-full items-center gap-1 rounded-sm uppercase tracking-wide focus:outline-none focus-visible:ring-1 focus-visible:ring-sky-500 ${
+          align === "right" ? "justify-end" : ""
+        } ${active ? "text-slate-100" : "hover:text-slate-200"}`}
+      >
+        <span>{label}</span>
+        <span
+          aria-hidden="true"
+          className={`text-[9px] leading-none ${
+            active ? "text-sky-400" : "text-slate-700 group-hover:text-slate-500"
+          }`}
+        >
+          {active ? (dir === "asc" ? "▲" : "▼") : "▾"}
+        </span>
+      </button>
+    </th>
+  );
+}
+
 export function ScorecardTable({
   rows,
   week,
@@ -94,35 +227,67 @@ export function ScorecardTable({
   week: number;
   horizon: number;
 }) {
+  const [sort, setSort] = useState<{ key: SortKey; dir: Dir } | null>(null);
+
+  function onSort(key: SortKey) {
+    setSort((prev) => {
+      if (prev?.key !== key) return { key, dir: FIRST_DIR[key] };
+      // Second click reverses; third clears back to the model's own ranking.
+      return prev.dir === FIRST_DIR[key]
+        ? { key, dir: prev.dir === "asc" ? "desc" : "asc" }
+        : null;
+    });
+  }
+
+  const sorted = useMemo(
+    () =>
+      sort
+        ? [...rows].sort((a, b) => compare(a, b, sort.key, sort.dir))
+        : rows,
+    [rows, sort],
+  );
+
+  // Hints compare each team against the leader, so they must read the MODEL's
+  // ranking. Passing the re-sorted array would make "better than X" name
+  // whatever happened to land on top of the current sort.
+  const head = (key: SortKey) => ({
+    sortKey: key,
+    active: sort?.key === key,
+    dir: sort?.key === key ? sort.dir : FIRST_DIR[key],
+    onSort,
+  });
+
   return (
     <div className="overflow-x-auto rounded-lg ring-1 ring-slate-800">
       <table className="w-full min-w-[900px] border-collapse text-sm nums">
         <thead>
           <tr className="bg-slate-900/80 text-left text-xs uppercase tracking-wide text-slate-400">
-            <th className="px-3 py-2.5 font-medium">#</th>
-            <th className="px-3 py-2.5 font-medium">Team</th>
-            <th className="px-3 py-2.5 font-medium">Matchup</th>
-            <th className="px-3 py-2.5 text-right font-medium">Vegas</th>
-            <th className="px-3 py-2.5 text-right font-medium">Silver</th>
-            <th
-              className="px-3 py-2.5 text-right font-medium"
+            <SortHeader label="#" {...head("rank")} title="The model's own ranking by Score. Stays fixed when you sort by another column." />
+            <SortHeader label="Team" {...head("team")} />
+            <SortHeader label="Matchup" {...head("matchup")} title="Sorts by opponent." />
+            <SortHeader label="Vegas" align="right" {...head("vegas")} />
+            <SortHeader label="Silver" align="right" {...head("silver")} />
+            <SortHeader
+              label="Diff"
+              align="right"
+              {...head("diff")}
               title="Silver minus Vegas. Positive = Silver rates this team above the market."
-            >
-              Diff
-            </th>
-            <th
-              className="px-3 py-2.5 text-right font-medium"
+            />
+            <SortHeader
+              label="Blend"
+              align="right"
+              {...head("blend")}
               title={
                 "Blended win probability — the Vegas and Silver numbers combined " +
                 "at the weight set by the slider.\n\n" +
                 "If only one source covers a game, that source is used alone rather " +
                 "than being halved."
               }
-            >
-              Blend
-            </th>
-            <th
-              className="px-3 py-2.5 text-right font-medium"
+            />
+            <SortHeader
+              label="PickNow"
+              align="right"
+              {...head("pickNow")}
               title={
                 "PICKNOW — what this team is worth THIS week.\n\n" +
                 "This team's win probability minus the best OTHER available team's.\n\n" +
@@ -132,11 +297,11 @@ export function ScorecardTable({
                 "Near zero across the top rows means the leaders are interchangeable\n" +
                 "this week, so other factors (chalk, saving a team) can decide."
               }
-            >
-              PickNow
-            </th>
-            <th
-              className="px-3 py-2.5 text-right font-medium"
+            />
+            <SortHeader
+              label="PickLater"
+              align="right"
+              {...head("pickLater")}
               title={
                 "PICKLATER — what you give up by spending this team now.\n\n" +
                 `The biggest edge it has over your next-best option in weeks ` +
@@ -148,11 +313,11 @@ export function ScorecardTable({
                 "This is what demotes a strong team to SAVE: Score subtracts\n" +
                 "λ × PickLater, so a big future edge outweighs a small edge now."
               }
-            >
-              PickLater
-            </th>
-            <th
-              className="px-3 py-2.5 text-right font-medium"
+            />
+            <SortHeader
+              label="Score"
+              align="right"
+              {...head("score")}
               title={
                 "SCORE = Blend − λ × PickLater. The ranking column.\n\n" +
                 "It trades this week's win probability against what the team is\n" +
@@ -161,14 +326,12 @@ export function ScorecardTable({
                 "This is a single-week view: it assumes no picks between now and\n" +
                 "the week shown. The Plan tab enforces one-team-per-season properly."
               }
-            >
-              Score
-            </th>
-            <th className="px-3 py-2.5 font-medium">Rec</th>
+            />
+            <SortHeader label="Rec" {...head("rec")} title="Sorts TOP PICK → STRONG → SAVE → AVAILABLE." />
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => (
+          {sorted.map((r) => (
             <tr
               key={r.team}
               className="border-t border-slate-800/70 hover:bg-slate-800/30"
@@ -293,7 +456,11 @@ export function ScorecardTable({
         <span className="text-slate-400">PickNow</span> /{" "}
         <span className="text-slate-400">PickLater</span> /{" "}
         <span className="text-slate-400">Score</span> value for what it means
-        for that team.
+        for that team. Click a header to sort by it, again to reverse, a third
+        time to return to the model&rsquo;s own ranking. Teams with no number in
+        a column stay at the bottom either way, and{" "}
+        <span className="text-slate-400">#</span> always shows the rank by
+        Score, not the row&rsquo;s position.
       </p>
     </div>
   );
